@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiplayer Color Prediction Game</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+</head>
+<body>
+    <div id="root" class="min-h-screen bg-gray-100 flex items-center justify-center"></div>
+
+    <script type="text/babel">
+        const COLORS = ['Red', 'Green', 'Blue'];
+        const socket = io('http://localhost:3000', { reconnection: true });
+
+        const PredictionButton = ({ color, onPredict, disabled }) => (
+            <button
+                onClick={() => onPredict(color)}
+                disabled={disabled}
+                className={`px-4 py-2 m-2 rounded text-white font-bold ${
+                    color === 'Red' ? 'bg-red-500 hover:bg-red-600' :
+                    color === 'Green' ? 'bg-green-500 hover:bg-green-600' :
+                    'bg-blue-500 hover:bg-blue-600'
+                } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+                Predict {color}
+            </button>
+        );
+
+        const Game = () => {
+            const [gameState, setGameState] = React.useState('predicting');
+            const [timeLeft, setTimeLeft] = React.useState(10);
+            const [predictions, setPredictions] = React.useState({ Red: 0, Green: 0, Blue: 0 });
+            const [currentColor, setCurrentColor] = React.useState(null);
+            const [playerPrediction, setPlayerPrediction] = React.useState(null);
+            const [connectionStatus, setConnectionStatus] = React.useState('Connecting...');
+
+            React.useEffect(() => {
+                socket.on('connect', () => {
+                    console.log('Client: Connected to server');
+                    setConnectionStatus('Connected');
+                });
+
+                socket.on('disconnect', () => {
+                    console.log('Client: Disconnected from server');
+                    setConnectionStatus('Disconnected');
+                });
+
+                socket.on('init', ({ gameState, timeLeft, predictions, currentColor }) => {
+                    console.log('Client: Initialized', { gameState, timeLeft });
+                    setGameState(gameState);
+                    setTimeLeft(timeLeft);
+                    setPredictions(predictions);
+                    setCurrentColor(currentColor);
+                });
+
+                socket.on('updateTimer', (time) => {
+                    console.log('Client: Received time update', time);
+                    setTimeLeft(time);
+                });
+
+                socket.on('updatePredictions', (newPredictions) => {
+                    console.log('Client: Updated predictions', newPredictions);
+                    setPredictions(newPredictions);
+                });
+
+                socket.on('showResult', ({ currentColor, predictions }) => {
+                    console.log('Client: Showing result', { currentColor });
+                    setGameState('showing');
+                    setCurrentColor(currentColor);
+                    setPredictions(predictions);
+                });
+
+                socket.on('resetGame', () => {
+                    console.log('Client: Resetting game');
+                    setGameState('predicting');
+                    setCurrentColor(null);
+                    setPredictions({ Red: 0, Green: 0, Blue: 0 });
+                    setPlayerPrediction(null);
+                });
+
+                return () => {
+                    socket.off('connect');
+                    socket.off('disconnect');
+                    socket.off('init');
+                    socket.off('updateTimer');
+                    socket.off('updatePredictions');
+                    socket.off('showResult');
+                    socket.off('resetGame');
+                };
+            }, []);
+
+            const handlePrediction = (color) => {
+                if (gameState === 'predicting' && !playerPrediction) {
+                    console.log('Client: Predicting', color);
+                    socket.emit('predict', color);
+                    setPlayerPrediction(color);
+                }
+            };
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
+                    <h1 className="text-2xl font-bold mb-4 text-center">Multiplayer Color Prediction</h1>
+                    <p className="text-center mb-4">Status: {connectionStatus}</p>
+                    
+                    <div className="mb-4">
+                        <p className="text-lg">Time Left: {timeLeft}s</p>
+                        {currentColor && gameState === 'showing' && (
+                            <p className="text-lg">Winning Color: 
+                                <span className={`font-bold ${
+                                    currentColor === 'Red' ? 'text-red-500' :
+                                    currentColor === 'Green' ? 'text-green-500' :
+                                    'text-blue-500'
+                                }`}> {currentColor}</span>
+                            </p>
+                        )}
+                    </div>
+
+                    <div className="mb-4">
+                        {COLORS.map(color => (
+                            <PredictionButton 
+                                key={color}
+                                color={color}
+                                onPredict={handlePrediction}
+                                disabled={gameState === 'showing' || playerPrediction || connectionStatus !== 'Connected'}
+                            />
+                        ))}
+                    </div>
+
+                    <div className="mb-4">
+                        <h2 className="text-xl font-semibold">Predictions:</h2>
+                        {COLORS.map(color => (
+                            <p key={color}>
+                                - {color}: {predictions[color]} {playerPrediction === color && '(Your pick)'}
+                            </p>
+                        ))}
+                    </div>
+
+                    {playerPrediction && gameState === 'showing' && (
+                        <p className="text-lg font-bold text-center">
+                            {playerPrediction === currentColor ? 
+                                'You Won!' : 'Better luck next time!'}
+                        </p>
+                    )}
+                </div>
+            );
+        };
+
+        ReactDOM.render(<Game />, document.getElementById('root'));
+    </script>
+</body>
+</html>
