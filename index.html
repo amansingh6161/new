@@ -1,137 +1,94 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Color Prediction Game</title>
-    <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Color Prediction Game (Continuous)</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      text-align: center;
+      padding: 20px;
+      background-color: #f0f8ff;
+      margin: 0;
+      color: #333;
+    }
+    h1 { font-size: 2.5em; margin-bottom: 10px; }
+    p { font-size: 1.2em; margin-bottom: 20px; }
+    .color-btn {
+      width: 80px;
+      height: 80px;
+      margin: 10px;
+      border: none;
+      cursor: pointer;
+      border-radius: 50%;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+      transition: transform 0.2s;
+    }
+    .color-btn:hover { transform: scale(1.15); }
+    #timer { font-size: 1.5em; font-weight: bold; color: #ff4500; margin: 10px; }
+    #result { margin-top: 20px; font-size: 1.3em; line-height: 1.6; max-width: 600px; margin-left: auto; margin-right: auto; }
+    #colorChoices { display: flex; justify-content: center; flex-wrap: wrap; }
+  </style>
 </head>
 <body>
-    <div id="root" class="min-h-screen bg-gray-100 flex items-center justify-center"></div>
+  <h1>Color Prediction Game</h1>
+  <p id="status">Connected players: 0</p>
+  
+  <div id="colorChoices">
+    <button class="color-btn" style="background-color: #ff4d4d;" onclick="chooseColor('Red')"></button>
+    <button class="color-btn" style="background-color: #4d79ff;" onclick="chooseColor('Blue')"></button>
+    <button class="color-btn" style="background-color: #4dff4d;" onclick="chooseColor('Green')"></button>
+  </div>
+  
+  <div id="timer">Timer: 10s</div>
+  <div id="result">Pick a color! Least chosen wins every 10 seconds.</div>
 
-    <script type="text/babel">
-        const COLORS = ['Red', 'Green', 'Blue'];
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const timerDisplay = document.getElementById('timer');
+    const resultDisplay = document.getElementById('result');
+    const statusDisplay = document.getElementById('status');
+    let myChoice = null;
 
-        const PredictionButton = ({ color, onPredict, disabled }) => (
-            <button
-                onClick={() => onPredict(color)}
-                disabled={disabled}
-                className={`px-4 py-2 m-2 rounded text-white font-bold ${
-                    color === 'Red' ? 'bg-red-500 hover:bg-red-600' :
-                    color === 'Green' ? 'bg-green-500 hover:bg-green-600' :
-                    'bg-blue-500 hover:bg-blue-600'
-                } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-                Predict {color}
-            </button>
-        );
+    socket.on('connect', () => {
+      socket.emit('joinGame');
+    });
 
-        const Game = () => {
-            const [currentColor, setCurrentColor] = React.useState(null);
-            const [nextColor, setNextColor] = React.useState(null);
-            const [timeLeft, setTimeLeft] = React.useState(10);
-            const [predictions, setPredictions] = React.useState({ Red: 0, Green: 0, Blue: 0 });
-            const [playerPrediction, setPlayerPrediction] = React.useState(null);
-            const [gameState, setGameState] = React.useState('predicting'); // 'predicting' or 'showing'
+    socket.on('playerCount', (count) => {
+      statusDisplay.innerHTML = `Connected players: ${count}`;
+    });
 
-            // Game loop
-            React.useEffect(() => {
-                const timer = setInterval(() => {
-                    setTimeLeft(prev => {
-                        if (prev <= 1) {
-                            if (gameState === 'predicting') {
-                                const newColor = COLORS[Math.floor(Math.random() * COLORS.length)];
-                                setCurrentColor(nextColor);
-                                setNextColor(newColor);
-                                setGameState('showing');
-                                setTimeLeft(3);
-                                setPlayerPrediction(null);
-                            } else {
-                                setGameState('predicting');
-                                setTimeLeft(10);
-                                setPredictions({ Red: 0, Green: 0, Blue: 0 });
-                            }
-                            return gameState === 'predicting' ? 3 : 10;
-                        }
-                        return prev - 1;
-                    });
-                }, 1000);
+    socket.on('timerUpdate', (time) => {
+      timerDisplay.innerHTML = `Timer: ${time}s`;
+    });
 
-                return () => clearInterval(timer);
-            }, [gameState]);
+    socket.on('update', (msg) => {
+      resultDisplay.innerHTML = msg;
+    });
 
-            // Initial color setup
-            React.useEffect(() => {
-                setNextColor(COLORS[Math.floor(Math.random() * COLORS.length)]);
-            }, []);
+    socket.on('gameResult', (result) => {
+      let resultText = `<strong>Results:</strong><br>`;
+      for (const color in result.choices) {
+        resultText += `${color}: ${result.choices[color]} players<br>`;
+      }
+      resultText += `<br><strong>Winner(s):</strong> ${result.winners.length ? result.winners.join(', ') + ` with ${result.minCount} pick(s)` : 'No one chose a color!' }<br>`;
+      if (myChoice && result.winners.includes(myChoice)) {
+        resultText += `<strong style="color: #4CAF50;">You win!</strong>`;
+      } else if (myChoice) {
+        resultText += `<strong style="color: #ff4d4d;">You lose!</strong>`;
+      } else {
+        resultText += `<strong style="color: #ff4d4d;">You didn’t pick!</strong>`;
+      }
+      resultDisplay.innerHTML = resultText;
+      myChoice = null;
+    });
 
-            const handlePrediction = (color) => {
-                if (gameState === 'predicting' && !playerPrediction) {
-                    setPredictions(prev => ({
-                        ...prev,
-                        [color]: prev[color] + 1
-                    }));
-                    setPlayerPrediction(color);
-                }
-            };
-
-            return (
-                <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
-                    <h1 className="text-2xl font-bold mb-4 text-center">Color Prediction Game</h1>
-                    
-                    <div className="mb-4">
-                        <p className="text-lg">Time Left: {timeLeft}s</p>
-                        {currentColor && gameState === 'showing' && (
-                            <p className="text-lg">Current Color: 
-                                <span className={`font-bold ${
-                                    currentColor === 'Red' ? 'text-red-500' :
-                                    currentColor === 'Green' ? 'text-green-500' :
-                                    'text-blue-500'
-                                }`}> {currentColor}</span>
-                            </p>
-                        )}
-                    </div>
-
-                    <div className="mb-4">
-                        {COLORS.map(color => (
-                            <PredictionButton 
-                                key={color}
-                                color={color}
-                                onPredict={handlePrediction}
-                                disabled={gameState === 'showing' || playerPrediction}
-                            />
-                        ))}
-                    </div>
-
-                    <div className="mb-4">
-                        <h2 className="text-xl font-semibold">Predictions:</h2>
-                        {COLORS.map(color => (
-                            <p key={color}>
-                                {color}: {predictions[color]} {playerPrediction === color && '(Your pick)'}
-                            </p>
-                        ))}
-                    </div>
-
-                    {playerPrediction && gameState === 'showing' && (
-                        <p className="text-lg font-bold text-center">
-                            {playerPrediction === currentColor ? 
-                                'You Won!' : 'Better luck next time!'}
-                        </p>
-                    )}
-                </div>
-            );
-        };
-
-        const App = () => (
-            <div>
-                <Game />
-            </div>
-        );
-
-        ReactDOM.render(<App />, document.getElementById('root'));
-    </script>
+    function chooseColor(color) {
+      myChoice = color;
+      socket.emit('chooseColor', color);
+    }
+  </script>
 </body>
 </html>
